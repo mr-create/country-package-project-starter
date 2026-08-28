@@ -1,0 +1,21 @@
+services:
+  country-package:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__Database: Data Source=/data/country-packages.db
+      Storage__SourceDirectory: /sources
+      Copilot__ModelEndpoint: ${COPILOT_MODEL_ENDPOINT:-}
+      Copilot__Model: ${COPILOT_MODEL:-configured-model}
+      Copilot__ApiKey: ${COPILOT_API_KEY:-}
+      Copilot__ApiKeyHeader: ${COPILOT_API_KEY_HEADER:-Authorization}
+    volumes:
+      - country-package-data:/data
+    restart: unless-stopped
+
+volumes:
+  country-package-data:

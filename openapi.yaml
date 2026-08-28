@@ -1,0 +1,918 @@
+openapi: 3.0.3
+info:
+  title: Country Package Approval API
+  version: 1.0.0-draft
+  description: |
+    API contract for the Country Package Approval Service. Development uses
+    fictional header identities; production authentication is an external boundary.
+servers:
+  - url: http://localhost:8080
+    description: Local container endpoint
+tags:
+  - name: Packages
+    description: Country Package creation and authorized package views.
+  - name: Steps
+    description: Document, submission, distribution, and audit operations.
+  - name: Reviews
+    description: Assigned Reviewer tasks and decisions.
+  - name: Health
+    description: Container liveness and readiness.
+  - name: Development
+    description: Development-only fictional identity support.
+  - name: Copilot
+    description: Human-controlled evidence preparation and DOCX export.
+security:
+  - DevelopmentIdentity: []
+
+paths:
+  /api/packages:
+    get:
+      tags: [Packages]
+      summary: List packages visible to the current Editor
+      operationId: listPackages
+      responses:
+        '200':
+          description: Country-scoped package summaries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PackageSummary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags: [Packages]
+      summary: Create a Country Package and its fixed roadmap
+      operationId: createPackage
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePackageRequest'
+            example:
+              countryCode: BGD
+              title: Bangladesh Country Package 2027
+      responses:
+        '201':
+          description: Package created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CountryPackage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /api/packages/{packageId}:
+    parameters:
+      - $ref: '#/components/parameters/PackageId'
+    get:
+      tags: [Packages]
+      summary: Get an Editor's country-scoped package roadmap
+      operationId: getPackage
+      responses:
+        '200':
+          description: Package view filtered for the current user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CountryPackage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/packages/{packageId}/steps/{order}/document:
+    parameters:
+      - $ref: '#/components/parameters/PackageId'
+      - $ref: '#/components/parameters/StepOrder'
+    post:
+      tags: [Steps]
+      summary: Upload a new immutable document version for an eligible decision step
+      operationId: uploadStepDocument
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: PDF or DOCX content, limited to 10 MB.
+                evidenceManifest:
+                  $ref: '#/components/schemas/EvidenceManifestInput'
+            encoding:
+              file:
+                contentType: application/pdf, application/vnd.openxmlformats-officedocument.wordprocessingml.document
+              evidenceManifest:
+                contentType: application/json
+      responses:
+        '201':
+          description: Document version created and attached as the draft
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DocumentVersion'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '415':
+          $ref: '#/components/responses/UnsupportedMediaType'
+    get:
+      tags: [Steps]
+      summary: Download the authorized step document or pinned review snapshot
+      operationId: downloadStepDocument
+      responses:
+        '200':
+          description: Document content
+          headers:
+            ETag:
+              description: SHA-256-based entity tag
+              schema:
+                type: string
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+            application/vnd.openxmlformats-officedocument.wordprocessingml.document:
+              schema:
+                type: string
+                format: binary
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/packages/{packageId}/steps/{order}/submit:
+    parameters:
+      - $ref: '#/components/parameters/PackageId'
+      - $ref: '#/components/parameters/StepOrder'
+      - $ref: '#/components/parameters/IdempotencyKey'
+    post:
+      tags: [Steps]
+      summary: Submit a decision step or complete a distribution step
+      operationId: submitStep
+      description: |
+        Decision steps require reviewerUserId. Distribution steps require
+        recipientUserId. Exactly one must be supplied according to the step kind.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubmitStepRequest'
+            examples:
+              decision:
+                summary: Assign the required reviewer and submit a decision step
+                value:
+                  reviewerUserId: reviewer-bgd-country
+              distribution:
+                summary: Select the recipient and complete a distribution step
+                value:
+                  recipientUserId: recipient-bgd-country
+      responses:
+        '200':
+          description: Updated step
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApprovalStep'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /api/packages/{packageId}/steps/{order}/review:
+    parameters:
+      - $ref: '#/components/parameters/PackageId'
+      - $ref: '#/components/parameters/StepOrder'
+      - $ref: '#/components/parameters/IdempotencyKey'
+    post:
+      tags: [Reviews]
+      summary: Approve or return an assigned decision
+      operationId: reviewStep
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReviewStepRequest'
+            examples:
+              approve:
+                value:
+                  decision: Approve
+              return:
+                value:
+                  decision: Return
+                  comment: Update the fiscal-year evidence and resubmit.
+      responses:
+        '200':
+          description: Updated step
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApprovalStep'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /api/packages/{packageId}/steps/{order}/audit:
+    parameters:
+      - $ref: '#/components/parameters/PackageId'
+      - $ref: '#/components/parameters/StepOrder'
+    get:
+      tags: [Steps]
+      summary: Get the authorized audit trail for a step
+      operationId: getStepAudit
+      responses:
+        '200':
+          description: Ordered audit entries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AuditEntry'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/reviewer/tasks:
+    get:
+      tags: [Reviews]
+      summary: List the current reviewer's pending assignments
+      operationId: getReviewerTasks
+      responses:
+        '200':
+          description: Authorized pending review tasks
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ReviewerTask'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/reviewer/tasks/{packageId}/steps/{order}:
+    parameters:
+      - $ref: '#/components/parameters/PackageId'
+      - $ref: '#/components/parameters/StepOrder'
+    get:
+      tags: [Reviews]
+      summary: Get the current reviewer's assigned decision context
+      operationId: getReviewerTask
+      responses:
+        '200':
+          description: Pinned snapshot, evidence manifest, and step audit
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReviewContext'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/dev/personas:
+    get:
+      tags: [Development]
+      summary: List fictional login personas
+      description: Available only when the application runs in Development.
+      operationId: listDevelopmentPersonas
+      security: []
+      responses:
+        '200':
+          description: Fictional users available to the persona selector
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/DevelopmentPersona'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/copilot/prepare:
+    post:
+      tags: [Copilot]
+      summary: Prepare or revise an evidence-grounded draft
+      operationId: prepareCopilotDraft
+      description: Retrieves only fictional sources authorized for the current Editor's country scope. Output remains advisory until explicitly accepted and uploaded.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CopilotPrepareRequest'
+            example:
+              countryCode: BGD
+              instructions: Focus on delivery risks and mitigations.
+      responses:
+        '200':
+          description: Draft, citations, warnings, and evidence manifest
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CopilotPrepareResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/copilot/export:
+    post:
+      tags: [Copilot]
+      summary: Export an Editor-accepted draft as DOCX
+      operationId: exportCopilotDraft
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CopilotExportRequest'
+      responses:
+        '200':
+          description: Generated DOCX artifact ready for explicit upload
+          content:
+            application/vnd.openxmlformats-officedocument.wordprocessingml.document:
+              schema:
+                type: string
+                format: binary
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /health/live:
+    get:
+      tags: [Health]
+      summary: Check process liveness
+      operationId: getLiveness
+      security: []
+      responses:
+        '200':
+          description: Process is alive
+
+  /health/ready:
+    get:
+      tags: [Health]
+      summary: Check application and database readiness
+      operationId: getReadiness
+      security: []
+      responses:
+        '200':
+          description: Application is ready
+        '503':
+          description: A required dependency is unavailable
+
+components:
+  securitySchemes:
+    DevelopmentIdentity:
+      type: apiKey
+      in: header
+      name: X-User-Id
+      description: Development-only fictional user identity.
+
+  parameters:
+    PackageId:
+      name: packageId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    StepOrder:
+      name: order
+      in: path
+      required: true
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 4
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+
+  responses:
+    BadRequest:
+      description: Request validation failed
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+    Unauthorized:
+      description: Identity is missing or invalid
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+    Forbidden:
+      description: The current user cannot perform the operation
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+    NotFound:
+      description: Resource does not exist or is concealed from the current user
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+    Conflict:
+      description: Workflow, concurrency, or idempotency conflict
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+    PayloadTooLarge:
+      description: Uploaded content exceeds the configured limit
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+    UnsupportedMediaType:
+      description: Uploaded content is not an accepted PDF or DOCX document
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+    ServiceUnavailable:
+      description: A configured supporting service is unavailable
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+
+  schemas:
+    CreatePackageRequest:
+      type: object
+      additionalProperties: false
+      required: [countryCode, title]
+      properties:
+        countryCode:
+          type: string
+          minLength: 3
+          maxLength: 3
+          pattern: '^[A-Z]{3}$'
+          example: BGD
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+          example: Bangladesh Country Package 2027
+
+    SubmitStepRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      maxProperties: 1
+      properties:
+        reviewerUserId:
+          type: string
+          maxLength: 100
+          example: reviewer-bgd-country
+        recipientUserId:
+          type: string
+          maxLength: 100
+          example: recipient-bgd-country
+
+    PackageSummary:
+      type: object
+      required: [id, countryCode, title, status, currentStepOrder, currentStepStatus]
+      properties:
+        id:
+          type: string
+          format: uuid
+        countryCode:
+          type: string
+        title:
+          type: string
+        status:
+          $ref: '#/components/schemas/PackageStatus'
+        currentStepOrder:
+          type: integer
+          minimum: 1
+          maximum: 4
+        currentStepStatus:
+          $ref: '#/components/schemas/StepStatus'
+
+    ReviewStepRequest:
+      type: object
+      additionalProperties: false
+      required: [decision]
+      properties:
+        decision:
+          $ref: '#/components/schemas/Decision'
+        comment:
+          type: string
+          maxLength: 2000
+          description: Required when decision is Return.
+
+    CountryPackage:
+      type: object
+      required: [id, countryCode, title, status, createdBy, createdAt, steps]
+      properties:
+        id:
+          type: string
+          format: uuid
+        countryCode:
+          type: string
+        title:
+          type: string
+        status:
+          $ref: '#/components/schemas/PackageStatus'
+        createdBy:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        steps:
+          type: array
+          minItems: 4
+          maxItems: 4
+          items:
+            $ref: '#/components/schemas/ApprovalStep'
+
+    ApprovalStep:
+      type: object
+      required: [id, order, kind, status]
+      properties:
+        id:
+          type: string
+          format: uuid
+        order:
+          type: integer
+          minimum: 1
+          maximum: 4
+        kind:
+          $ref: '#/components/schemas/StepKind'
+        requiredClearance:
+          type: string
+          enum: [Country, Regional]
+          nullable: true
+        status:
+          $ref: '#/components/schemas/StepStatus'
+        reviewerUserId:
+          type: string
+          nullable: true
+        recipientUserId:
+          type: string
+          nullable: true
+        draftDocumentVersionId:
+          type: string
+          format: uuid
+          nullable: true
+        snapshotDocumentVersionId:
+          type: string
+          format: uuid
+          nullable: true
+        distributedDocumentVersionId:
+          type: string
+          format: uuid
+          nullable: true
+        reviewDecision:
+          type: string
+          enum: [Approve, Return]
+          nullable: true
+        reviewComment:
+          type: string
+          nullable: true
+        submittedAt:
+          type: string
+          format: date-time
+          nullable: true
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+
+    DocumentVersion:
+      type: object
+      required: [id, fileName, contentType, sha256, uploadedBy, uploadedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        fileName:
+          type: string
+        contentType:
+          type: string
+        sha256:
+          type: string
+          pattern: '^[a-f0-9]{64}$'
+        uploadedBy:
+          type: string
+        uploadedAt:
+          type: string
+          format: date-time
+        evidenceManifest:
+          $ref: '#/components/schemas/EvidenceManifest'
+
+    AuditEntry:
+      type: object
+      required: [id, actorUserId, action, occurredAt, traceId]
+      properties:
+        id:
+          type: string
+          format: uuid
+        stepOrder:
+          type: integer
+          nullable: true
+        actorUserId:
+          type: string
+        action:
+          type: string
+        details:
+          type: object
+          additionalProperties: true
+        occurredAt:
+          type: string
+          format: date-time
+        traceId:
+          type: string
+
+    ReviewerTask:
+      type: object
+      required: [packageId, countryCode, title, stepOrder, requiredClearance, snapshotDocumentVersionId, submittedAt]
+      properties:
+        packageId:
+          type: string
+          format: uuid
+        countryCode:
+          type: string
+        title:
+          type: string
+        stepOrder:
+          type: integer
+        requiredClearance:
+          $ref: '#/components/schemas/Clearance'
+        snapshotDocumentVersionId:
+          type: string
+          format: uuid
+        submittedAt:
+          type: string
+          format: date-time
+
+    ReviewContext:
+      type: object
+      required: [packageId, countryCode, title, step, snapshot, audit]
+      properties:
+        packageId:
+          type: string
+          format: uuid
+        countryCode:
+          type: string
+        title:
+          type: string
+        step:
+          $ref: '#/components/schemas/ReviewStepView'
+        snapshot:
+          $ref: '#/components/schemas/DocumentVersion'
+        audit:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuditEntry'
+
+    ReviewStepView:
+      type: object
+      required: [id, order, kind, requiredClearance, status, reviewerUserId, snapshotDocumentVersionId, submittedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        order:
+          type: integer
+          minimum: 1
+          maximum: 4
+        kind:
+          type: string
+          enum: [Decision]
+        requiredClearance:
+          $ref: '#/components/schemas/Clearance'
+        status:
+          $ref: '#/components/schemas/StepStatus'
+        reviewerUserId:
+          type: string
+        snapshotDocumentVersionId:
+          type: string
+          format: uuid
+        submittedAt:
+          type: string
+          format: date-time
+        reviewDecision:
+          type: string
+          enum: [Approve, Return]
+          nullable: true
+        reviewComment:
+          type: string
+          nullable: true
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+
+    DevelopmentPersona:
+      type: object
+      required: [userId, displayName, role, countryScopes]
+      properties:
+        userId:
+          type: string
+        displayName:
+          type: string
+        role:
+          type: string
+          enum: [CountryEditor, CountryReviewer]
+        countryScopes:
+          type: array
+          items:
+            type: string
+        clearance:
+          type: string
+          enum: [Country, Regional]
+          nullable: true
+
+    EvidenceManifestInput:
+      type: object
+      description: AI provenance supplied with an Editor-accepted document. The service derives the accepting user from the authenticated identity.
+      required: [sourceReferences, citations, validationFindings, workflowVersion, modelIdentifier, generatedAt]
+      properties:
+        sourceReferences:
+          type: array
+          items:
+            type: string
+        citations:
+          type: array
+          items:
+            type: string
+        validationFindings:
+          type: array
+          items:
+            type: string
+        workflowVersion:
+          type: string
+        modelIdentifier:
+          type: string
+        generatedAt:
+          type: string
+          format: date-time
+
+    EvidenceManifest:
+      allOf:
+        - $ref: '#/components/schemas/EvidenceManifestInput'
+        - type: object
+          required: [acceptedBy]
+          properties:
+            acceptedBy:
+              type: string
+              description: User ID derived by the service when the Editor accepts and uploads the artifact.
+
+    CopilotPrepareRequest:
+      type: object
+      additionalProperties: false
+      required: [countryCode]
+      properties:
+        countryCode:
+          type: string
+          minLength: 3
+          maxLength: 3
+          pattern: '^[A-Z]{3}$'
+        instructions:
+          type: string
+          nullable: true
+          maxLength: 5000
+        existingDraft:
+          type: string
+          nullable: true
+          maxLength: 100000
+        reviewComment:
+          type: string
+          nullable: true
+          maxLength: 2000
+
+    CopilotPrepareResponse:
+      type: object
+      required: [draft, citations, warnings, evidenceManifest]
+      properties:
+        draft:
+          type: string
+        citations:
+          type: array
+          items:
+            type: string
+        warnings:
+          type: array
+          items:
+            type: string
+        evidenceManifest:
+          $ref: '#/components/schemas/EvidenceManifestInput'
+
+    CopilotExportRequest:
+      type: object
+      additionalProperties: false
+      required: [title, draft]
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+        draft:
+          type: string
+          minLength: 1
+          maxLength: 100000
+
+    ProblemDetails:
+      type: object
+      required: [title, status, code, traceId]
+      properties:
+        type:
+          type: string
+          format: uri
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string
+        instance:
+          type: string
+        code:
+          type: string
+          example: workflow.concurrent_update
+        traceId:
+          type: string
+
+    PackageStatus:
+      type: string
+      enum: [InProgress, Completed]
+    StepKind:
+      type: string
+      enum: [Decision, Distribution]
+    StepStatus:
+      type: string
+      enum: [NotStarted, Draft, PendingReview, Returned, Completed]
+    Clearance:
+      type: string
+      enum: [Country, Regional]
+    Decision:
+      type: string
+      enum: [Approve, Return]

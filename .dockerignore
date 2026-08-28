@@ -1,0 +1,16 @@
+**/bin
+**/obj
+**/node_modules
+**/dist
+**/TestResults
+*.db
+*.db-shm
+*.db-wal
+*.log
+*.zip
+.git
+.DS_Store
+.vs
+.vscode
+.idea
+interview-prep
